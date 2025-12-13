@@ -1,3 +1,2 @@
-# neonnekko
-
-A new Flutter project.
+# NeonNekko
+A personalized anime tracker

@@ -4,7 +4,7 @@ import '../models/content.dart';
 
 class ApiService {
 
-  // **REPLACE THIS WITH YOUR ACTUAL KEY**
+
   static const String _tmdbApiKey = '6e80bf4b41e695a7ba21fb88611d8e38'; 
   static const String _tmdbBaseUrl = 'https://api.themoviedb.org/3';
   

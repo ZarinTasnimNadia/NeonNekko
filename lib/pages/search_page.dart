@@ -21,13 +21,13 @@ class _SearchPageState extends State<SearchPage> {
   final StorageService _storageService = StorageService();
   final TextEditingController _searchController = TextEditingController();
   
-  // Future that holds the search results. Initialized to an empty list.
+
   Future<List<Content>> _searchResultsFuture = Future.value([]);
 
   @override
   void initState() {
     super.initState();
-    // Listen for text changes to trigger search automatically
+
     _searchController.addListener(_onSearchChanged);
   }
 
@@ -41,7 +41,7 @@ class _SearchPageState extends State<SearchPage> {
   void _onSearchChanged() {
     final query = _searchController.text.trim();
     
-    // Only search if the query is 3 characters or longer, or if cleared.
+
     if (query.length >= 3) {
       setState(() {
         _searchResultsFuture = _apiService.searchAll(query);
@@ -53,7 +53,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
   
-  // Helper to refresh the UI when a toggle action occurs
+
   void _refreshStatus() {
     setState(() {});
   }
@@ -125,7 +125,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildSearchResultTile(BuildContext context, Content content) {
-    // Futures to check the current status of the item
+   
     final wishListFuture = _storageService.loadWishList();
     final watchListFuture = _storageService.loadWatchList();
 
@@ -150,7 +150,7 @@ class _SearchPageState extends State<SearchPage> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // WishList Toggle (Heart)
+         
           FutureBuilder<List<Content>>(
             future: wishListFuture,
             builder: (context, snapshot) {
@@ -168,7 +168,7 @@ class _SearchPageState extends State<SearchPage> {
               );
             },
           ),
-          // WatchList Toggle (Bookmark)
+         
           FutureBuilder<List<Content>>(
             future: watchListFuture,
             builder: (context, snapshot) {
@@ -181,7 +181,7 @@ class _SearchPageState extends State<SearchPage> {
                 color: isWatched ? const Color.fromARGB(255, 245, 116, 215) : Colors.grey,
                 onPressed: () async {
                   await _storageService.toggleWatchListItem(content);
-                  _refreshStatus(); // Refresh UI to update icon
+                  _refreshStatus(); 
                 },
               );
             },
@@ -191,7 +191,7 @@ class _SearchPageState extends State<SearchPage> {
       onTap: () {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (context) => DetailPage(content: content)),
-      ).then((_) => _refreshStatus()); // Refresh list tile icons when returning
+      ).then((_) => _refreshStatus()); 
     },
 
     );

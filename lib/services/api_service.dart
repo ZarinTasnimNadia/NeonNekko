@@ -111,7 +111,7 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final Map<String, dynamic> data = jsonDecode(response.body);
-      // Jikan wraps the main object inside a 'data' key for details
+     
       return data['data'] ?? {};
     } else {
       throw Exception('Failed to load Jikan details for anime/$id. Status: ${response.statusCode}');

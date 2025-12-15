@@ -56,7 +56,7 @@ class _LoginPageState extends State<LoginPage> {
               controller: _identifierController,
               decoration: const InputDecoration(
                 labelText: 'Email',
-                hintText: 'e.g., user123 or user@email.com',
+                hintText: 'e.g. user@email.com',
               ),
             ),
             const SizedBox(height: 16),

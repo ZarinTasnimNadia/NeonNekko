@@ -1,28 +1,62 @@
-import 'package:flutter/material.dart';
-import 'package:neonnekko/auth/auth_service.dart'; // To allow Sign Out
+// lib/pages/home_page.dart
 
-class HomePage extends StatelessWidget {
+import 'package:flutter/material.dart';
+import 'package:neonnekko/auth/auth_service.dart';
+import '../services/api_service.dart';
+import '../services/storage_service.dart';
+import '../models/content.dart';
+import 'wishlist_page.dart';
+import 'watchlist_page.dart';
+import 'search_page.dart'; // Ensure this is imported for the drawer
+import 'detail_page.dart'; // Ensure this is imported for navigation
+
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
-  // Placeholder for the Home/Dashboard content
-  // Based on wireframe image_07d0b5.png
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final AuthService _authService = AuthService();
+  final ApiService _apiService = ApiService();
+  final StorageService _storageService = StorageService();
+
+  late Future<List<Content>> _trendingMoviesFuture;
+  late Future<List<Content>> _topAnimeFuture;
+  late Future<List<Content>> _wishListFuture;
+  late Future<List<Content>> _watchListFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize all API and storage futures
+    _trendingMoviesFuture = _apiService.fetchTrendingMovies();
+    _topAnimeFuture = _apiService.fetchTopAnime();
+    _wishListFuture = _storageService.loadWishList();
+    _watchListFuture = _storageService.loadWatchList();
+  }
+  
+  // Refreshes the local lists (WishList/WatchList rows and icons)
+  void _refreshLocalLists() {
+    setState(() {
+      _wishListFuture = _storageService.loadWishList();
+      _watchListFuture = _storageService.loadWatchList();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Access the Auth Service to allow sign out for testing
-    final authService = AuthService(); 
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('NeonNeko'),
         centerTitle: true,
-        // Menu Icon on the left
         leading: Builder(
           builder: (context) => IconButton(
             icon: const Icon(Icons.menu),
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-        // Filter Icon on the right
         actions: const [
           Padding(
             padding: EdgeInsets.only(right: 16.0),
@@ -30,7 +64,6 @@ class HomePage extends StatelessWidget {
           ),
         ],
       ),
-      // Placeholder for the navigation drawer (based on wireframe)
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -41,15 +74,45 @@ class HomePage extends StatelessWidget {
             ),
             ListTile(title: const Text('Home'), onTap: () => Navigator.pop(context)),
             ListTile(title: const Text('Profile'), onTap: () => { /* Navigate to Profile */ }),
-            ListTile(title: const Text('WishList'), onTap: () => { /* Navigate to WishList */ }),
-            ListTile(title: const Text('WatchList'), onTap: () => { /* Navigate to WatchList */ }),
-            ListTile(title: const Text('Search'), onTap: () => { /* Navigate to Search */ }),
+            
+            // --- WishList Navigation ---
+            ListTile(
+              title: const Text('WishList'), 
+              onTap: () {
+                Navigator.pop(context); 
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const WishListPage()),
+                ).then((_) => _refreshLocalLists()); 
+              },
+            ),
+            
+            // --- WatchList Navigation ---
+            ListTile(
+              title: const Text('WatchList'), 
+              onTap: () {
+                Navigator.pop(context); 
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const WatchListPage()),
+                ).then((_) => _refreshLocalLists());
+              },
+            ),
+            
+            // --- Search Navigation ---
+            ListTile(
+              title: const Text('Search'), 
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const SearchPage()),
+                ).then((_) => _refreshLocalLists());
+              },
+            ),
+
             const Divider(),
             ListTile(
               title: const Text('Sign Out'),
               onTap: () async {
-                await authService.signOut();
-                // Close the drawer and handle navigation will be done by AuthGate
+                await _authService.signOut();
                 if (context.mounted) Navigator.pop(context);
               },
             ),
@@ -57,73 +120,178 @@ class HomePage extends StatelessWidget {
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Placeholder content based on your wireframe image_07d0b5.png
-            Text('Trending', style: Theme.of(context).textTheme.headlineMedium),
-            _buildPosterRow(),
-            const SizedBox(height: 16),
+            _buildSectionHeader(context, 'Trending Movies/TV'),
+            _buildContentRow(context, _trendingMoviesFuture),
+            const SizedBox(height: 32),
             
-            Text('Upcoming', style: Theme.of(context).textTheme.headlineMedium),
-            _buildPosterRow(),
-            const SizedBox(height: 16),
+            _buildSectionHeader(context, 'Top Anime'),
+            _buildContentRow(context, _topAnimeFuture),
+            const SizedBox(height: 32),
 
-            Text('Currently Watching', style: Theme.of(context).textTheme.headlineMedium),
-            _buildPosterGrid(),
-            const SizedBox(height: 16),
+            _buildSectionHeader(context, 'WishList: Priority Order'),
+            _buildContentRow(context, _wishListFuture),
+            const SizedBox(height: 32),
             
-            Text('WishList: Priority Order', style: Theme.of(context).textTheme.headlineMedium),
-            _buildPosterGrid(),
+            _buildSectionHeader(context, 'Currently Watching'),
+            _buildContentRow(context, _watchListFuture),
+            const SizedBox(height: 32),
           ],
         ),
       ),
     );
   }
 
-  // Helper widget to build a row of posters (3 items)
-  Widget _buildPosterRow() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: List.generate(3, (index) => _buildPosterCard()),
-        ),
-        TextButton(onPressed: () {}, child: const Text('Show all')),
-      ],
-    );
-  }
-  
-  // Helper widget to build a grid of posters (6 items)
-  Widget _buildPosterGrid() {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 0.5, // Adjust for poster height
-      ),
-      itemCount: 6,
-      itemBuilder: (context, index) => _buildPosterCard(),
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
     );
   }
 
-  // Helper widget for a single poster card
-  Widget _buildPosterCard() {
-    return const SizedBox(
-      width: 100, // Fixed width for placeholder
-      child: Column(
-        children: [
-          AspectRatio(
-            aspectRatio: 0.7, // Portrait poster aspect ratio
-            child: Placeholder(color: Colors.grey),
-          ),
-          SizedBox(height: 4),
-          Text('anime/movie title', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-        ],
+  // Widget responsible for fetching and displaying a horizontal row of content
+  Widget _buildContentRow(BuildContext context, Future<List<Content>> contentFuture) {
+    return FutureBuilder<List<Content>>(
+      future: contentFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: CircularProgressIndicator(),
+          ));
+        } else if (snapshot.hasError) {
+          return Center(child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text('Error loading content: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
+          ));
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text('No content found.'),
+          ));
+        } else {
+          final contentList = snapshot.data!;
+          // Limit to 10 items for the home screen display
+          final displayList = contentList.take(10).toList();
+          
+          return SizedBox(
+            height: 250,
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              scrollDirection: Axis.horizontal,
+              itemCount: displayList.length,
+              itemBuilder: (context, index) {
+                return _buildPosterCard(displayList[index]);
+              },
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  // Widget for a single poster item with Detail Page navigation and Toggles
+  Widget _buildPosterCard(Content content) {
+    // Futures for dynamically checking the item's status in local storage
+    final wishListFuture = _storageService.loadWishList();
+    final watchListFuture = _storageService.loadWatchList();
+
+    return GestureDetector(
+      onTap: () {
+        // Navigate to the Detail Page when the poster is tapped
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (context) => DetailPage(content: content)),
+        ).then((_) => _refreshLocalLists()); // Refresh lists when returning
+      },
+      child: Container(
+        width: 120, 
+        margin: const EdgeInsets.only(right: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  // 1. The Poster Image
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8.0),
+                    child: content.imageUrl.isNotEmpty
+                        ? Image.network(
+                            content.imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => 
+                                const Placeholder(color: Colors.red), 
+                          )
+                        : const Placeholder(color: Colors.grey),
+                  ),
+                  
+                  // 2. WishList Toggle Icon (Top Right)
+                  Positioned(
+                    top: 5,
+                    right: 5,
+                    child: FutureBuilder<List<Content>>(
+                      future: wishListFuture,
+                      builder: (context, snapshot) {
+                        bool isWished = snapshot.hasData 
+                          ? snapshot.data!.any((item) => item.id == content.id && item.mediaType == content.mediaType)
+                          : false;
+                        
+                        return IconButton(
+                          icon: Icon(
+                            isWished ? Icons.favorite : Icons.favorite_border,
+                            color: isWished ? Colors.red : Colors.white,
+                            size: 24,
+                          ),
+                          onPressed: () async {
+                            await _storageService.toggleWishListItem(content);
+                            _refreshLocalLists(); // Refresh UI
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  
+                  // 3. WatchList Toggle Icon (Top Left)
+                  Positioned(
+                    top: 5,
+                    left: 5,
+                    child: FutureBuilder<List<Content>>(
+                      future: watchListFuture,
+                      builder: (context, snapshot) {
+                        bool isWatched = snapshot.hasData 
+                          ? snapshot.data!.any((item) => item.id == content.id && item.mediaType == content.mediaType)
+                          : false;
+                        
+                        return IconButton(
+                          icon: Icon(
+                            isWatched ? Icons.bookmark : Icons.bookmark_border,
+                            color: isWatched ? Colors.blue : Colors.white,
+                            size: 24,
+                          ),
+                          onPressed: () async {
+                            await _storageService.toggleWatchListItem(content);
+                            _refreshLocalLists(); // Refresh UI
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Title
+            Text(
+              content.title, 
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -7,8 +7,8 @@ import '../services/storage_service.dart';
 import '../models/content.dart';
 import 'wishlist_page.dart';
 import 'watchlist_page.dart';
-import 'search_page.dart'; // Ensure this is imported for the drawer
-import 'detail_page.dart'; // Ensure this is imported for navigation
+import 'search_page.dart'; 
+import 'detail_page.dart'; 
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -30,14 +30,14 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // Initialize all API and storage futures
+   
     _trendingMoviesFuture = _apiService.fetchTrendingMovies();
     _topAnimeFuture = _apiService.fetchTopAnime();
     _wishListFuture = _storageService.loadWishList();
     _watchListFuture = _storageService.loadWatchList();
   }
   
-  // Refreshes the local lists (WishList/WatchList rows and icons)
+
   void _refreshLocalLists() {
     setState(() {
       _wishListFuture = _storageService.loadWishList();
@@ -75,7 +75,7 @@ class _HomePageState extends State<HomePage> {
             ListTile(title: const Text('Home'), onTap: () => Navigator.pop(context)),
             ListTile(title: const Text('Profile'), onTap: () => { /* Navigate to Profile */ }),
             
-            // --- WishList Navigation ---
+          
             ListTile(
               title: const Text('WishList'), 
               onTap: () {
@@ -86,7 +86,7 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             
-            // --- WatchList Navigation ---
+           
             ListTile(
               title: const Text('WatchList'), 
               onTap: () {
@@ -97,7 +97,7 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             
-            // --- Search Navigation ---
+          
             ListTile(
               title: const Text('Search'), 
               onTap: () {
@@ -152,7 +152,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Widget responsible for fetching and displaying a horizontal row of content
+
   Widget _buildContentRow(BuildContext context, Future<List<Content>> contentFuture) {
     return FutureBuilder<List<Content>>(
       future: contentFuture,
@@ -174,7 +174,7 @@ class _HomePageState extends State<HomePage> {
           ));
         } else {
           final contentList = snapshot.data!;
-          // Limit to 10 items for the home screen display
+      
           final displayList = contentList.take(10).toList();
           
           return SizedBox(
@@ -193,18 +193,18 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Widget for a single poster item with Detail Page navigation and Toggles
+
   Widget _buildPosterCard(Content content) {
-    // Futures for dynamically checking the item's status in local storage
+
     final wishListFuture = _storageService.loadWishList();
     final watchListFuture = _storageService.loadWatchList();
 
     return GestureDetector(
       onTap: () {
-        // Navigate to the Detail Page when the poster is tapped
+   
         Navigator.of(context).push(
           MaterialPageRoute(builder: (context) => DetailPage(content: content)),
-        ).then((_) => _refreshLocalLists()); // Refresh lists when returning
+        ).then((_) => _refreshLocalLists()); 
       },
       child: Container(
         width: 120, 
@@ -215,7 +215,7 @@ class _HomePageState extends State<HomePage> {
             Expanded(
               child: Stack(
                 children: [
-                  // 1. The Poster Image
+                
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8.0),
                     child: content.imageUrl.isNotEmpty
@@ -228,7 +228,7 @@ class _HomePageState extends State<HomePage> {
                         : const Placeholder(color: Colors.grey),
                   ),
                   
-                  // 2. WishList Toggle Icon (Top Right)
+                 
                   Positioned(
                     top: 5,
                     right: 5,
@@ -242,7 +242,7 @@ class _HomePageState extends State<HomePage> {
                         return IconButton(
                           icon: Icon(
                             isWished ? Icons.favorite : Icons.favorite_border,
-                            color: isWished ? Colors.red : Colors.white,
+                            color: isWished ? const Color.fromARGB(255, 212, 128, 222) : Colors.white,
                             size: 24,
                           ),
                           onPressed: () async {
@@ -254,7 +254,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   
-                  // 3. WatchList Toggle Icon (Top Left)
+                 
                   Positioned(
                     top: 5,
                     left: 5,
@@ -268,12 +268,12 @@ class _HomePageState extends State<HomePage> {
                         return IconButton(
                           icon: Icon(
                             isWatched ? Icons.bookmark : Icons.bookmark_border,
-                            color: isWatched ? Colors.blue : Colors.white,
+                            color: isWatched ? const Color.fromARGB(255, 232, 109, 226) : Colors.white,
                             size: 24,
                           ),
                           onPressed: () async {
                             await _storageService.toggleWatchListItem(content);
-                            _refreshLocalLists(); // Refresh UI
+                            _refreshLocalLists(); 
                           },
                         );
                       },

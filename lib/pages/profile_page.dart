@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -11,8 +14,9 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
+  bool _isUploading = false;
   Map<String, dynamic>? _profileData;
-  String _error = '';
+  final _usernameController = TextEditingController();
 
   @override
   void initState() {
@@ -22,152 +26,159 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _fetchProfile() async {
     try {
-      if (_supabase.auth.currentUser == null) {
-        throw Exception('User is not logged in.');
-      }
-
       final currentUserId = _supabase.auth.currentUser!.id;
-
-      // FIX: Changed the type from List<Map<String, dynamic>> to Map<String, dynamic>
-      // because the .single() modifier guarantees a single map response.
-      final Map<String, dynamic> data = await _supabase 
-          .from('users')
-          .select('*, user_preferred_genres (genres (name))')
-          .eq('id', currentUserId)
-          .single();
-
+      final data = await _supabase.from('users').select().eq('id', currentUserId).single();
       if (mounted) {
         setState(() {
           _profileData = data;
-          _isLoading = false;
-        });
-      }
-    } on PostgrestException catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Error fetching profile: ${e.message}';
+          _usernameController.text = data['username'] ?? '';
           _isLoading = false;
         });
       }
     } catch (e) {
+      if (mounted) setState(() { _isLoading = false; });
+    }
+  }
+
+  Future<void> _uploadAvatar() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
+
+    if (image == null) return;
+
+    setState(() => _isUploading = true);
+
+    try {
+      final file = File(image.path);
+      final userId = _supabase.auth.currentUser!.id;
+      
+      final String extension = image.path.split('.').last.toLowerCase();
+      final String path = '$userId/profile.$extension';
+
+      await _supabase.storage.from('avatars').upload(
+            path,
+            file,
+            fileOptions: const FileOptions(upsert: true),
+          );
+
+      final String publicUrl = _supabase.storage.from('avatars').getPublicUrl(path);
+      final String timestampedUrl = '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+
+      await _supabase.from('users').update({'avatar_url': timestampedUrl}).eq('id', userId);
+
+      await _fetchProfile();
+      
       if (mounted) {
-        setState(() {
-          _error = 'An unexpected error occurred: $e';
-          _isLoading = false;
-        });
+        ShadToaster.of(context).show(const ShadToast(description: Text('Photo updated!')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ShadToaster.of(context).show(ShadToast.destructive(description: Text('Upload failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
+  Future<void> _updateProfile() async {
+    try {
+      final userId = _supabase.auth.currentUser!.id;
+      await _supabase.from('users').update({
+        'username': _usernameController.text,
+      }).eq('id', userId);
+      
+      await _fetchProfile();
+      if (mounted) {
+        ShadToaster.of(context).show(const ShadToast(description: Text('Profile updated!')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ShadToaster.of(context).show(ShadToast.destructive(description: Text('Error: $e')));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-    if (_error.isNotEmpty || _profileData == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Profile Error')),
-        body: Center(child: Text(_error.isNotEmpty ? _error : 'Profile not found.', style: TextStyle(color: Theme.of(context).primaryColor))),
-      );
-    }
-    
-    // Process the nested genre data from the query result
-    // The cast is necessary because the nested structure remains List<Map<String, dynamic>>
-    final List<Map<String, dynamic>> genreLinks = (_profileData!['user_preferred_genres'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final String preferredGenres = genreLinks.map((link) => link['genres']['name']).join(', ');
-    
-    // Extract and display profile fields
-    final currentUserId = _supabase.auth.currentUser!.id;
-    final username = _profileData!['username'] ?? 'N/A';
-    final email = _profileData!['email'] ?? 'N/A';
-    final fullName = _profileData!['full_name'] ?? 'N/A';
-    final dob = _profileData!['date_of_birth'] ?? 'N/A';
+    final theme = ShadTheme.of(context);
+    final String? avatarUrl = _profileData?['avatar_url'];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () {
-              // TODO: Implement profile editing navigation
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('My Profile')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(32.0),
+        padding: const EdgeInsets.all(24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Avatar Placeholder
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Theme.of(context).primaryColor, width: 3),
+            GestureDetector(
+              onTap: _isUploading ? null : _uploadAvatar,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: theme.colorScheme.muted,
+                    ),
+                    child: ClipOval(
+                      child: (avatarUrl != null && avatarUrl.isNotEmpty)
+                          ? Image.network(
+                              avatarUrl,
+                              width: 120,
+                              height: 120,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(Icons.person, size: 60, color: theme.colorScheme.primary);
+                              },
+                            )
+                          : Icon(Icons.person, size: 60, color: theme.colorScheme.primary),
+                    ),
+                  ),
+                  if (_isUploading) CircularProgressIndicator(color: theme.colorScheme.primary),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(color: theme.colorScheme.primary, shape: BoxShape.circle),
+                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.person, size: 60, color: Colors.grey),
+            ),
+            const SizedBox(height: 32),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 8.0),
+                child: Text('Username', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ),
+            ),
+            ShadInput(
+              controller: _usernameController,
+              placeholder: const Text('Enter your username'),
             ),
             const SizedBox(height: 16),
-            
-            // Username Display
-            Text(
-              username,
-              style: Theme.of(context).textTheme.headlineMedium,
+            ShadButton(
+              width: double.infinity,
+              onPressed: _updateProfile,
+              child: const Text('Save Profile Changes'),
             ),
-            const SizedBox(height: 24),
-
-            // Profile Data List
-            _buildProfileRow(context, 'Name:', fullName),
-            _buildProfileRow(context, 'AccountID:', currentUserId.substring(0, 8) + '...'), // Truncate UUID
-            _buildProfileRow(context, 'Email:', email),
-            
-            // Placeholder fields from wireframe 
-            _buildProfileRow(context, 'Watched Anime:', '0'),
-            _buildProfileRow(context, 'Watched Movies:', '0'),
-
-            _buildProfileRow(context, 'WishList:', 'View List'),
-            _buildProfileRow(context, 'WatchList:', 'View List'),
-
-            _buildProfileRow(context, 'Preferred Genres:', preferredGenres.isEmpty ? 'Not set' : preferredGenres),
-            _buildProfileRow(context, 'Date of Birth:', dob),
-
-            const SizedBox(height: 40),
-
-            // Back Button
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(), 
-              child: const Text('Back'),
+            const Divider(height: 64),
+            ShadButton.destructive(
+              width: double.infinity,
+              onPressed: () async {
+                await _supabase.auth.signOut();
+                if (mounted) Navigator.of(context).pushReplacementNamed('/login');
+              },
+              child: const Text('Logout'),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildProfileRow(BuildContext context, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Theme.of(context).primaryColor),
-            ),
-          ),
-        ],
       ),
     );
   }

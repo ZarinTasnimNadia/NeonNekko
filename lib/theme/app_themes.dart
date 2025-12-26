@@ -1,120 +1,97 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
-// --- Base Theme Colors ---
 const Color kawaiiPink = Color(0xFFF5A6CD); 
 const Color kawaiiLavender = Color(0xFFE4D3EC); 
 const Color darkSurface = Color(0xFF1E1E2E); 
-const Color darkText = Color(0xFFD9E0EE); 
+const Color darkText = Color(0xFFD9E0EE);
+const Color sakuraPurple = Color(0xFF9B59B6);
 
-// --- Theme Map ---
 Map<String, ThemeData> getAppThemes() {
   return {
     'Light Mode': _lightTheme,
     'Dark Mode': _darkTheme,
-    'Catppuccin': _catppuccinTheme, // The default "Kawaii" style
+    'Catppuccin': _catppuccinTheme,
   };
 }
 
-// --- Shared Input Decoration (The "Box" Look) ---
-const InputDecorationTheme _inputDecorationTheme = InputDecorationTheme(
-  filled: true,
-  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 15),
-  border: OutlineInputBorder(
-    borderRadius: BorderRadius.all(Radius.circular(12.0)),
-    borderSide: BorderSide.none,
-  ),
-  enabledBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.all(Radius.circular(12.0)),
-    borderSide: BorderSide.none,
-  ),
-  focusedBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.all(Radius.circular(12.0)),
-    borderSide: BorderSide(width: 2.0),
-  ),
-  labelStyle: TextStyle(fontWeight: FontWeight.w500),
-);
+Map<String, ShadThemeData> getShadThemes() {
+  return {
+    'Light Mode': ShadThemeData(
+      brightness: Brightness.light,
+      colorScheme: ShadZincColorScheme.light(
+        primary: kawaiiPink,
+        background: const Color(0xFFFFF5F8),
+        foreground: sakuraPurple,
+        card: kawaiiLavender,
+      ),
+    ),
+    'Dark Mode': ShadThemeData(
+      brightness: Brightness.dark,
+      colorScheme: ShadZincColorScheme.dark(
+        primary: kawaiiPink,
+        background: darkSurface,
+        foreground: darkText,
+        card: const Color(0xFF2D1B36),
+      ),
+    ),
+    'Catppuccin': ShadThemeData(
+      brightness: Brightness.dark,
+      colorScheme: ShadZincColorScheme.dark(
+        primary: kawaiiPink,
+        background: darkSurface,
+        foreground: darkText,
+        card: const Color(0xFF2D1B36),
+        secondary: kawaiiLavender,
+      ),
+    ),
+  };
+}
 
-
-// 1. Light Theme
 final ThemeData _lightTheme = ThemeData(
   brightness: Brightness.light,
-  primaryColor: Colors.blueAccent,
-  scaffoldBackgroundColor: Colors.white,
+  primaryColor: kawaiiPink,
+  scaffoldBackgroundColor: const Color.fromARGB(255, 248, 194, 229),
   appBarTheme: const AppBarTheme(
-    backgroundColor: Colors.blueAccent,
+    backgroundColor: Color.fromARGB(255, 237, 123, 201),
     foregroundColor: Colors.white,
     titleTextStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
   ),
-  inputDecorationTheme: _inputDecorationTheme.copyWith(
-    fillColor: Colors.grey.shade100,
-    focusedBorder: _inputDecorationTheme.focusedBorder?.copyWith(
-      borderSide: const BorderSide(color: Colors.blueAccent, width: 2.0),
-    ),
-  ),
-  elevatedButtonTheme: ElevatedButtonThemeData(
-    style: ElevatedButton.styleFrom(
-      backgroundColor: Colors.blueAccent,
-      foregroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      padding: const EdgeInsets.symmetric(vertical: 15),
-      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-    ),
+  colorScheme: ColorScheme.light(
+    primary: kawaiiPink,
+    secondary: sakuraPurple,
+    surface: kawaiiLavender,
   ),
 );
 
-
-// 2. Dark Theme
 final ThemeData _darkTheme = ThemeData(
   brightness: Brightness.dark,
-  primaryColor: Colors.tealAccent,
-  scaffoldBackgroundColor: darkSurface,
+  primaryColor: sakuraPurple,
+  scaffoldBackgroundColor: const Color.fromARGB(255, 0, 0, 0),
   appBarTheme: const AppBarTheme(
-    backgroundColor: Color(0xFF282A36),
+    backgroundColor: Color(0xFF2D1B36),
     foregroundColor: darkText,
     titleTextStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
   ),
-  inputDecorationTheme: _inputDecorationTheme.copyWith(
-    fillColor: const Color(0xFF383A59),
-    labelStyle: const TextStyle(color: darkText),
-    focusedBorder: _inputDecorationTheme.focusedBorder?.copyWith(
-      borderSide: const BorderSide(color: Colors.tealAccent, width: 2.0),
-    ),
-  ),
-  elevatedButtonTheme: ElevatedButtonThemeData(
-    style: ElevatedButton.styleFrom(
-      backgroundColor: Colors.tealAccent,
-      foregroundColor: darkSurface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      padding: const EdgeInsets.symmetric(vertical: 15),
-      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-    ),
+  colorScheme: ColorScheme.dark(
+    primary: kawaiiPink,
+    secondary: sakuraPurple,
+    surface: const Color(0xFF2D1B36),
   ),
 );
 
-
-// 3. Catppuccin Theme (The "Kawaii" Pink/Lavender style)
 final ThemeData _catppuccinTheme = ThemeData(
-  brightness: Brightness.light,
+  brightness: Brightness.dark,
   primaryColor: kawaiiPink,
-  scaffoldBackgroundColor: Colors.white,
+  scaffoldBackgroundColor: const Color.fromARGB(255, 62, 6, 65),
   appBarTheme: const AppBarTheme(
-    backgroundColor: kawaiiPink,
+    backgroundColor: Color.fromARGB(255, 90, 1, 81),
     foregroundColor: Colors.white,
     titleTextStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
   ),
-  inputDecorationTheme: _inputDecorationTheme.copyWith(
-    fillColor: kawaiiLavender, // Soft purple box color
-    focusedBorder: _inputDecorationTheme.focusedBorder?.copyWith(
-      borderSide: const BorderSide(color: kawaiiPink, width: 2.0),
-    ),
-  ),
-  elevatedButtonTheme: ElevatedButtonThemeData(
-    style: ElevatedButton.styleFrom(
-      backgroundColor: kawaiiPink,
-      foregroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      padding: const EdgeInsets.symmetric(vertical: 15),
-      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-    ),
+  colorScheme: ColorScheme.dark(
+    primary: kawaiiPink,
+    secondary: kawaiiLavender,
+    surface: const Color(0xFF2D1B36),
   ),
 );

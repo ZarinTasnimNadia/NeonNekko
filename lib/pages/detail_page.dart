@@ -1,13 +1,13 @@
-// lib/pages/detail_page.dart
-
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'package:intl/intl.dart';
 import '../models/content.dart';
 import '../services/api_service.dart';
-import '../services/storage_service.dart';
 
 class DetailPage extends StatefulWidget {
   final Content content;
-
   const DetailPage({super.key, required this.content});
 
   @override
@@ -15,105 +15,223 @@ class DetailPage extends StatefulWidget {
 }
 
 class _DetailPageState extends State<DetailPage> {
+  final _supabase = Supabase.instance.client;
   final ApiService _apiService = ApiService();
-  final StorageService _storageService = StorageService();
+  final TextEditingController _commentController = TextEditingController();
+
   late Future<Map<String, dynamic>> _detailsFuture;
-  
+  List<dynamic> _comments = [];
+  double _userRating = 0;
+  double _averageRating = 0;
+  bool _isSubmitting = false;
+
   @override
   void initState() {
     super.initState();
-    // Determine which API to call based on the media type
+    _detailsFuture = _fetchData();
+    _fetchComments();
+  }
+
+  Future<Map<String, dynamic>> _fetchData() async {
     if (widget.content.mediaType == 'anime') {
-      _detailsFuture = _apiService.fetchJikanDetails(widget.content.id);
+      final results = await Future.wait([
+        _apiService.fetchJikanDetails(widget.content.id),
+        _apiService.fetchAnimeFranchiseStats(widget.content.id),
+      ]);
+      return {
+        ...results[0],
+        'franchise_info': results[1],
+      };
     } else {
-      // Handles 'movie' and 'tv'
-      _detailsFuture = _apiService.fetchTmdbDetails(widget.content.id, widget.content.mediaType);
+      return await _apiService.fetchTmdbDetails(widget.content.id, widget.content.mediaType);
     }
   }
 
-  // Helper method to toggle WishList status and update the UI
-  Future<void> _toggleWishList() async {
-    await _storageService.toggleWishListItem(widget.content);
-    setState(() {}); // Refresh UI to update the icon
-  }
-  
-  // Helper method to toggle WatchList status and update the UI
-  Future<void> _toggleWatchList() async {
-    await _storageService.toggleWatchListItem(widget.content);
-    setState(() {}); // Refresh UI to update the icon
-  }
-  
-  // Helper to extract the primary image URL from the raw TMDb or Jikan data
-  String _getDetailImageUrl(Map<String, dynamic> data, String mediaType) {
-    if (mediaType == 'anime') {
-      // Jikan uses the raw URL
-      return data['images']?['jpg']?['large_image_url'] ?? '';
-    } else {
-      // TMDb uses a relative path that needs the base URL
-      const String imageBaseUrl = 'https://image.tmdb.org/t/p/w500';
-      final path = data['poster_path'] ?? data['backdrop_path'];
-      return path != null ? '$imageBaseUrl$path' : '';
+  Future<void> _fetchComments() async {
+    try {
+      final res = await _supabase
+          .from('reviews')
+          .select('''
+            *,
+            users!reviews_user_id_public_fkey (
+              username
+            )
+          ''')
+          .eq('content_id', widget.content.id)
+          .eq('media_type', widget.content.mediaType)
+          .order('created_at', ascending: false);
+
+      if (mounted) {
+        setState(() {
+          _comments = res;
+          if (_comments.isNotEmpty) {
+            final total = _comments.fold<double>(0, (sum, item) => sum + (item['rating'] as num).toDouble());
+            _averageRating = total / _comments.length;
+          } else {
+            _averageRating = 0.0;
+          }
+
+          final currentUserId = _supabase.auth.currentUser?.id;
+          if (currentUserId != null) {
+            final userReview = _comments.firstWhere(
+              (r) => r['user_id'] == currentUserId,
+              orElse: () => null,
+            );
+            if (userReview != null) {
+              _userRating = (userReview['rating'] as num).toDouble();
+              _commentController.text = userReview['comment'] ?? '';
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching comments: $e');
     }
   }
 
-  // Helper to extract the main synopsis
-  String _getSynopsis(Map<String, dynamic> data, String mediaType) {
-    if (mediaType == 'anime') {
-      return data['synopsis'] ?? 'No synopsis available.';
-    } else {
-      return data['overview'] ?? 'No overview available.';
+  Future<void> _submitReview() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+
+    setState(() => _isSubmitting = true);
+    try {
+      await _supabase.from('reviews').upsert({
+        'user_id': user.id,
+        'content_id': widget.content.id,
+        'media_type': widget.content.mediaType,
+        'rating': _userRating,
+        'comment': _commentController.text,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      await _fetchComments();
+      if (mounted) {
+        ShadToaster.of(context).show(const ShadToast(description: Text('Review saved successfully!')));
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.content.title),
-      ),
+      appBar: AppBar(title: Text(widget.content.title)),
       body: FutureBuilder<Map<String, dynamic>>(
         future: _detailsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error loading details: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('Details not found.'));
-          }
+          if (!snapshot.hasData) return const Center(child: Text('Error loading details'));
 
           final data = snapshot.data!;
-          final imageUrl = _getDetailImageUrl(data, widget.content.mediaType);
+          String episodeInfo = "N/A";
+          List<Map<String, dynamic>> animeSeasons = [];
+          String globalRating = "N/A";
+
+          if (widget.content.mediaType == 'anime') {
+            final franchise = data['franchise_info'];
+            final totalEpisodes = franchise['total_episodes'] ?? 0;
+            final tvSeasonCount = franchise['seasons_count'] ?? 1;
+            animeSeasons = List<Map<String, dynamic>>.from(franchise['season_list'] ?? []);
+            episodeInfo = "$tvSeasonCount TV Seasons • $totalEpisodes Total Episodes";
+            globalRating = data['score']?.toString() ?? "N/A";
+          } else {
+            if (data.containsKey('number_of_episodes')) {
+              episodeInfo = "${data['number_of_seasons']} Seasons • ${data['number_of_episodes']} Episodes";
+            } else if (data.containsKey('runtime')) {
+              episodeInfo = "${data['runtime']} Minutes";
+            }
+            globalRating = data['vote_average']?.toStringAsFixed(1) ?? "N/A";
+          }
+
+          final List genres = data['genres'] ?? [];
+          final genreNames = genres.map((g) => g['name']).join(', ');
 
           return SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Poster/Header Image
-                _buildHeaderImage(imageUrl, context),
-                
-                // 2. Action Buttons (WishList/WatchList)
-                _buildActionButtons(),
-
-                // 3. Synopsis
-                _buildSectionTitle(context, 'Synopsis'),
+                Image.network(widget.content.imageUrl, height: 350, width: double.infinity, fit: BoxFit.cover),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: Text(_getSynopsis(data, widget.content.mediaType)),
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(child: Text(widget.content.title, style: theme.textTheme.h2)),
+                          _buildRatingBadge(theme),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.public, size: 16, color: theme.colorScheme.mutedForeground),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Global Rating: $globalRating',
+                            style: theme.textTheme.muted.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (genreNames.isNotEmpty) ShadBadge(child: Text(genreNames)),
+                      const SizedBox(height: 12),
+                      Text(episodeInfo, style: theme.textTheme.large.copyWith(color: theme.colorScheme.primary)),
+                      const Divider(height: 32),
+                      Text(data['overview'] ?? data['synopsis'] ?? 'No synopsis available', style: theme.textTheme.p),
+                      
+                      if (animeSeasons.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        Text('Full Franchise History', style: theme.textTheme.h3),
+                        const SizedBox(height: 8),
+                        ...animeSeasons.map((s) {
+                          final bool isCurrent = s['mal_id'] == widget.content.id;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(s['name'], 
+                              style: theme.textTheme.muted.copyWith(
+                                color: isCurrent ? theme.colorScheme.primary : null,
+                                fontWeight: isCurrent ? FontWeight.bold : null
+                              )
+                            ),
+                            subtitle: Text("${s['episodes']} Episodes (${s['type']})"),
+                            trailing: isCurrent ? const ShadBadge(child: Text('Viewing')) : const Icon(Icons.chevron_right),
+                            onTap: isCurrent ? null : () {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => DetailPage(
+                                    content: Content(
+                                      id: s['mal_id'],
+                                      title: s['name'],
+                                      imageUrl: widget.content.imageUrl, 
+                                      mediaType: 'anime'
+                                    )
+                                  )
+                                )
+                              );
+                            },
+                          );
+                        }),
+                      ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-
-                // 4. Metadata (Placeholder for specific fields)
-                _buildSectionTitle(context, 'Metadata'),
-                _buildMetadataRow(data, widget.content.mediaType),
-                const SizedBox(height: 16),
-
-                // 5. Cast/Staff (Placeholder for simplicity)
-                _buildSectionTitle(context, 'Cast & Crew'),
-                _buildCastSection(data, widget.content.mediaType),
-                const SizedBox(height: 32),
+                _buildReviewInput(theme),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text('Community Reviews', style: theme.textTheme.h3),
+                ),
+                _comments.isEmpty
+                    ? const Padding(padding: EdgeInsets.all(40), child: Center(child: Text('No reviews yet.')))
+                    : _buildCommentList(theme),
+                const SizedBox(height: 60),
               ],
             ),
           );
@@ -122,173 +240,85 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  // --- Helper Widgets ---
-
-  Widget _buildHeaderImage(String imageUrl, BuildContext context) {
+  Widget _buildRatingBadge(ShadThemeData theme) {
     return Container(
-      width: double.infinity,
-      height: 300,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        image: imageUrl.isNotEmpty
-            ? DecorationImage(
-                image: NetworkImage(imageUrl),
-                fit: BoxFit.cover,
-                colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.3), BlendMode.darken),
-              )
-            : null,
-        color: Colors.grey[800],
+        color: theme.colorScheme.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Stack(
+      child: Column(
         children: [
-          // Display the content title prominently on the image
-          Positioned(
-            bottom: 20,
-            left: 16,
-            right: 16,
-            child: Text(
-              widget.content.title,
-              style: Theme.of(context).textTheme.headlineMedium!.copyWith(color: Colors.white),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+          const Icon(Icons.star, color: Colors.amber, size: 24),
+          Text(_averageRating.toStringAsFixed(1), style: theme.textTheme.h4),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewInput(ShadThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: ShadCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Your Review', style: theme.textTheme.h4),
+            const SizedBox(height: 12),
+            RatingBar.builder(
+              initialRating: _userRating,
+              itemSize: 30,
+              allowHalfRating: true,
+              itemBuilder: (context, _) => const Icon(Icons.star, color: Colors.amber),
+              onRatingUpdate: (r) => setState(() => _userRating = r),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildActionButtons() {
-    // We use FutureBuilder again to dynamically check the status from local storage
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          // WishList Toggle
-          FutureBuilder<List<Content>>(
-            future: _storageService.loadWishList(),
-            builder: (context, snapshot) {
-              bool isWished = snapshot.hasData 
-                ? snapshot.data!.any((item) => item.id == widget.content.id && item.mediaType == widget.content.mediaType)
-                : false;
-              return ElevatedButton.icon(
-                onPressed: _toggleWishList,
-                icon: Icon(isWished ? Icons.favorite : Icons.favorite_border, color: Colors.red),
-                label: Text(isWished ? 'WISH LISTED' : 'ADD TO WISH'),
-              );
-            },
-          ),
-          // WatchList Toggle
-          FutureBuilder<List<Content>>(
-            future: _storageService.loadWatchList(),
-            builder: (context, snapshot) {
-              bool isWatched = snapshot.hasData 
-                ? snapshot.data!.any((item) => item.id == widget.content.id && item.mediaType == widget.content.mediaType)
-                : false;
-              return ElevatedButton.icon(
-                onPressed: _toggleWatchList,
-                icon: Icon(isWatched ? Icons.bookmark : Icons.bookmark_border, color: Colors.blue),
-                label: Text(isWatched ? 'IN WATCHLIST' : 'ADD TO WATCH'),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(BuildContext context, String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 8.0),
-      child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-    );
-  }
-  
-  Widget _buildMetadataRow(Map<String, dynamic> data, String mediaType) {
-    String releaseDate = '';
-    String runtime = '';
-
-    if (mediaType == 'anime') {
-      releaseDate = data['aired']?['string'] ?? 'N/A';
-      runtime = data['duration'] ?? 'N/A';
-    } else {
-      releaseDate = data['release_date'] ?? data['first_air_date'] ?? 'N/A';
-      runtime = mediaType == 'movie' 
-          ? '${data['runtime'] ?? 'N/A'} mins' 
-          : '${data['number_of_seasons'] ?? 'N/A'} seasons';
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _metadataItem('Release Date', releaseDate),
-          _metadataItem('Runtime/Seasons', runtime),
-          _metadataItem('Rating', data['vote_average']?.toStringAsFixed(1) ?? data['score']?.toStringAsFixed(1) ?? 'N/A'),
-        ],
-      ),
-    );
-  }
-  
-  Widget _metadataItem(String label, String value) {
-    return Column(
-      children: [
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
-    );
-  }
-  
-  Widget _buildCastSection(Map<String, dynamic> data, String mediaType) {
-    List<dynamic> castList = [];
-    if (mediaType == 'anime') {
-      // Jikan has voice actors/staff
-      castList = data['staff']?.take(5).toList() ?? [];
-    } else {
-      // TMDb has cast/crew
-      castList = data['credits']?['cast']?.take(5).toList() ?? [];
-    }
-
-    if (castList.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16.0),
-        child: Text('Cast/Staff information not available.'),
-      );
-    }
-    
-    return SizedBox(
-      height: 120,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: castList.length,
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        itemBuilder: (context, index) {
-          final item = castList[index];
-          final name = item['name'] ?? item['title'] ?? 'Unknown';
-          final role = item['character'] ?? item['job'] ?? 'Staff';
-          final profilePath = item['profile_path'];
-          
-          return Container(
-            width: 80,
-            margin: const EdgeInsets.only(right: 10),
-            child: Column(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundImage: profilePath != null 
-                    ? NetworkImage('https://image.tmdb.org/t/p/w200$profilePath') 
-                    : null,
-                  child: profilePath == null ? const Icon(Icons.person) : null,
-                ),
-                const SizedBox(height: 4),
-                Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                Text(role, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-              ],
+            const SizedBox(height: 12),
+            ShadInput(
+              controller: _commentController,
+              placeholder: const Text('Share your thoughts...'),
             ),
-          );
-        },
+            const SizedBox(height: 12),
+            ShadButton(
+              width: double.infinity,
+              onPressed: _isSubmitting ? null : _submitReview,
+              child: _isSubmitting
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Post Review'),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildCommentList(ShadThemeData theme) {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _comments.length,
+      itemBuilder: (context, index) {
+        final r = _comments[index];
+        final username = r['users']?['username'] ?? 'Anonymous User';
+        return ListTile(
+          leading: CircleAvatar(child: Text(username[0].toUpperCase())),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(username, style: theme.textTheme.large),
+              Text('⭐ ${r['rating']}', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(r['comment'] ?? '', style: theme.textTheme.muted),
+              const SizedBox(height: 4),
+              Text(DateFormat('MMM d, yyyy').format(DateTime.parse(r['created_at'])), style: const TextStyle(fontSize: 10)),
+            ],
+          ),
+        );
+      },
     );
   }
 }

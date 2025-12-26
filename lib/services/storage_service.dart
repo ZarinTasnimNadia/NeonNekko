@@ -1,190 +1,268 @@
-// lib/services/storage_service.dart
-
 import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/content.dart';
+import 'api_service.dart';
 
 class StorageService {
-  static const String _wishListKey = 'user_wish_list';
-  static const String _watchListKey = 'user_watch_list';
+  final _supabase = Supabase.instance.client;
 
-  static const List<String> availableStatuses = [
-    'Planning', 'Watching', 'Completed', 'Dropped'
-  ];
+  String? get _userId => _supabase.auth.currentUser?.id;
 
-  // --- WISH LIST METHODS ---
-  
-  Future<void> saveWishList(List<Content> wishList) async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    final List<String> jsonList = wishList.map((content) {
-      return jsonEncode({
-        'id': content.id,
-        'title': content.title,
-        'imageUrl': content.imageUrl,
-        'mediaType': content.mediaType,
-        'priority': content.priority,
-      });
-    }).toList();
-    
-    await prefs.setStringList(_wishListKey, jsonList);
+  // --- ENUM MAPPING HELPERS ---
+
+  String _mapDbStatusToUi(String? dbStatus) {
+    switch (dbStatus) {
+      case 'currently_watching': return 'Watching';
+      case 'finished': return 'Completed';
+      case 'dropped': return 'Dropped';
+      case 'plan_to_watch': return 'Planning';
+      default: return 'Watching';
+    }
   }
+
+  String _mapUiToDbStatus(String? uiStatus) {
+    switch (uiStatus) {
+      case 'Watching': return 'currently_watching';
+      case 'Completed': return 'finished';
+      case 'Dropped': return 'dropped';
+      case 'Planning': return 'plan_to_watch';
+      default: return 'currently_watching';
+    }
+  }
+
+  // --- LOCAL CACHING LOGIC ---
+
+  Future<void> _saveLocalCache(String key, List<Content> content) async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encodedData = jsonEncode(content.map((item) => {
+      'id': item.id,
+      'title': item.title,
+      'imageUrl': item.imageUrl,
+      'mediaType': item.mediaType,
+      'status': item.status,
+      'currentProgress': item.currentProgress,
+      'totalProgress': item.totalProgress,
+      'priority': item.priority,
+    }).toList());
+    await prefs.setString('${key}_$_userId', encodedData);
+  }
+
+  Future<List<Content>> _loadLocalCache(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? encodedData = prefs.getString('${key}_$_userId');
+    if (encodedData == null) return [];
+
+    final List<dynamic> decodedData = jsonDecode(encodedData);
+    return decodedData.map((json) => Content(
+      id: json['id'],
+      title: json['title'],
+      imageUrl: json['imageUrl'],
+      mediaType: json['mediaType'],
+      status: json['status'],
+      currentProgress: json['currentProgress'],
+      totalProgress: json['totalProgress'],
+      priority: json['priority'],
+    )).toList();
+  }
+
 
   Future<List<Content>> loadWishList() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> jsonList = prefs.getStringList(_wishListKey) ?? [];
+    if (_userId == null) return [];
     
-    List<Content> list = jsonList.map((jsonString) {
-      final Map<String, dynamic> json = jsonDecode(jsonString);
-      
-      return Content(
-        id: json['id'] as int,
-        title: json['title'] as String,
-        imageUrl: json['imageUrl'] as String,
-        mediaType: json['mediaType'] as String,
-        priority: json['priority'] as int?,
-      );
-    }).toList();
+    // 1. Try to load from local cache first for immediate UI feedback
+    List<Content> cachedList = await _loadLocalCache('wishlist');
     
-    list.sort((a, b) {
-      if (a.priority == null) return (b.priority == null) ? 0 : 1;
-      if (b.priority == null) return -1;
-      return a.priority!.compareTo(b.priority!);
-    });
+    try {
+      final res = await _supabase
+          .from('wishlist')
+          .select()
+          .eq('user_id', _userId!)
+          .order('priority_order', ascending: true);
 
-    return list;
-  }
+      final List<Content> list = (res as List).map((json) => Content(
+        id: json['title_id'],
+        title: json['temp_title'] ?? 'Unknown',
+        imageUrl: json['temp_image'] ?? '',
+        mediaType: json['temp_media_type'] ?? 'anime',
+        priority: json['priority_order'],
+      )).toList();
 
-  Future<List<Content>> toggleWishListItem(Content content) async {
-    List<Content> currentList = await loadWishList();
-    
-    final isPresent = currentList.any(
-      (item) => item.id == content.id && item.mediaType == content.mediaType
-    );
-
-    if (isPresent) {
-      currentList.removeWhere(
-        (item) => item.id == content.id && item.mediaType == content.mediaType
-      );
-    } else {
-      currentList.add(content);
+      // 2. Only overwrite cache if we successfully got data from the server
+      await _saveLocalCache('wishlist', list);
+      return list;
+    } catch (e) {
+      debugPrint('Wishlist fetch failed, using cached list: $e');
+      return cachedList;
     }
-
-    await saveWishList(currentList);
-    return currentList;
   }
-  
+
+  Future<void> toggleWishListItem(Content content) async {
+    if (_userId == null) return;
+    try {
+      final existing = await _supabase
+          .from('wishlist')
+          .select()
+          .eq('user_id', _userId!)
+          .eq('title_id', content.id)
+          .maybeSingle();
+
+      if (existing != null) {
+        await _supabase.from('wishlist').delete().eq('user_id', _userId!).eq('title_id', content.id);
+      } else {
+        await _supabase.from('wishlist').insert({
+          'user_id': _userId,
+          'title_id': content.id,
+          'priority_order': 0,
+          'temp_title': content.title,
+          'temp_image': content.imageUrl,
+          'temp_media_type': content.mediaType,
+        });
+      }
+    } catch (e) {
+      debugPrint('Toggle Wishlist Error: $e');
+      // For a full offline app, you'd queue this action for later sync
+    }
+  }
+
+
   Future<void> setPriority(Content content, int newPriority) async {
-    List<Content> currentList = await loadWishList();
-    
-    final index = currentList.indexWhere(
-      (item) => item.id == content.id && item.mediaType == content.mediaType
-    );
-
-    if (index != -1) {
-      currentList[index] = Content(
-        id: content.id,
-        title: content.title,
-        imageUrl: content.imageUrl,
-        mediaType: content.mediaType,
-        priority: newPriority,
-      );
+    if (_userId == null) return;
+    try {
+      await _supabase
+          .from('wishlist')
+          .update({'priority_order': newPriority})
+          .eq('user_id', _userId!)
+          .eq('title_id', content.id);
+    } catch (e) {
+      debugPrint('Set Priority Error: $e');
     }
-    
-    await saveWishList(currentList);
   }
-  
-  // --- WATCH LIST METHODS ---
 
-  Future<void> saveWatchList(List<Content> watchList) async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    final List<String> jsonList = watchList.map((content) {
-      return jsonEncode({
-        'id': content.id,
-        'title': content.title,
-        'imageUrl': content.imageUrl,
-        'mediaType': content.mediaType,
-        'status': content.status,
-        'currentProgress': content.currentProgress,
-        'totalProgress': content.totalProgress,
-      });
-    }).toList();
-    
-    await prefs.setStringList(_watchListKey, jsonList);
-  }
+  // --- WATCHLIST METHODS ---
 
   Future<List<Content>> loadWatchList() async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    final List<String> jsonList = prefs.getStringList(_watchListKey) ?? [];
-    
-    return jsonList.map((jsonString) {
-      final Map<String, dynamic> json = jsonDecode(jsonString);
-      
-      return Content(
-        id: json['id'] as int,
-        title: json['title'] as String,
-        imageUrl: json['imageUrl'] as String,
-        mediaType: json['mediaType'] as String,
-        status: json['status'] as String?,
-        currentProgress: json['currentProgress'] as int?,
-        totalProgress: json['totalProgress'] as int?,
-      );
-    }).toList();
+    if (_userId == null) return [];
+
+    try {
+      final res = await _supabase
+          .from('watchlist')
+          .select()
+          .eq('user_id', _userId!);
+
+      final List<Content> list = (res as List).map((json) => Content(
+        id: json['title_id'],
+        title: json['temp_title'] ?? 'Unknown',
+        imageUrl: json['temp_image'] ?? '',
+        mediaType: json['temp_media_type'] ?? 'anime',
+        status: _mapDbStatusToUi(json['current_status']),
+        currentProgress: json['episodes_watched'],
+        totalProgress: json['temp_total_episodes'] ?? 12,
+      )).toList();
+
+      await _saveLocalCache('watchlist', list);
+      return list;
+    } catch (e) {
+      debugPrint('Watchlist fetch failed, loading local cache: $e');
+      return await _loadLocalCache('watchlist');
+    }
   }
 
-  Future<List<Content>> toggleWatchListItem(Content content) async {
-    List<Content> currentList = await loadWatchList();
-    
-    final isPresent = currentList.any(
-      (item) => item.id == content.id && item.mediaType == content.mediaType
-    );
+// storage_service.dart
 
-    if (isPresent) {
-      currentList.removeWhere(
-        (item) => item.id == content.id && item.mediaType == content.mediaType
-      );
-    } else {
-      currentList.add(Content(
-        id: content.id,
-        title: content.title,
-        imageUrl: content.imageUrl,
-        mediaType: content.mediaType,
-        status: 'Planning',
-        currentProgress: 0,
-        totalProgress: null,
-      ));
+  Future<bool> toggleWatchListItem(Content content) async {
+    if (_userId == null) return false;
+    try {
+      final existing = await _supabase
+          .from('watchlist')
+          .select()
+          .eq('user_id', _userId!)
+          .eq('title_id', content.id)
+          .maybeSingle();
+
+      if (existing != null) {
+        await _supabase
+            .from('watchlist')
+            .delete()
+            .eq('user_id', _userId!)
+            .eq('title_id', content.id);
+        debugPrint('Removed from database');
+        return false; 
+      } else {
+        await updateWatchListItem(content, newStatus: 'Watching', newCurrentProgress: 0);
+        debugPrint('Added to database');
+        return true; 
+      }
+    } catch (e) {
+      debugPrint('Toggle error: $e');
+      return false;
+    }
+  }
+
+
+
+  final ApiService _apiService = ApiService();
+
+
+
+  Future<void> updateWatchListItem(Content content, {String? newStatus, int? newCurrentProgress, int? newTotalProgress}) async {
+    if (_userId == null) return;
+
+    int totalEp = newTotalProgress ?? content.totalProgress ?? 12;
+
+    
+    if (totalEp == 12) {
+      try {
+        if (content.mediaType == 'anime') {
+          final stats = await _apiService.fetchAnimeFranchiseStats(content.id);
+          if (stats['total_episodes'] > 0) totalEp = stats['total_episodes'];
+        } else if (content.mediaType == 'tv') {
+          // Fetch real episode count for TV shows like Stranger Things
+          final details = await _apiService.fetchTmdbDetails(content.id, 'tv');
+          if (details.containsKey('number_of_episodes')) {
+            totalEp = details['number_of_episodes'];
+          }
+        } else if (content.mediaType == 'movie') {
+          totalEp = 1;
+        }
+      } catch (e) {
+        debugPrint("Error fetching metadata: $e");
+      }
     }
 
-    await saveWatchList(currentList);
-    return currentList;
-  }
-  
-  Future<void> updateWatchListItem(Content content, {
-    String? newStatus,
-    int? newCurrentProgress,
-    int? newTotalProgress,
-  }) async {
-    List<Content> currentList = await loadWatchList();
-    
-    final index = currentList.indexWhere(
-      (item) => item.id == content.id && item.mediaType == content.mediaType
-    );
+    String dbStatus = _mapUiToDbStatus(newStatus ?? content.status);
 
-    if (index != -1) {
-      currentList[index] = Content(
-        id: content.id,
-        title: content.title,
-        imageUrl: content.imageUrl,
-        mediaType: content.mediaType,
-        priority: currentList[index].priority,
-        status: newStatus ?? content.status,
-        currentProgress: newCurrentProgress ?? content.currentProgress,
-        totalProgress: newTotalProgress ?? content.totalProgress,
-      );
+    final updateData = {
+      'user_id': _userId,
+      'title_id': content.id,
+      'episodes_watched': newCurrentProgress ?? content.currentProgress ?? 0,
+      'current_status': dbStatus,
+      'temp_title': content.title,
+      'temp_image': content.imageUrl,
+      'temp_media_type': content.mediaType,
+      'temp_total_episodes': totalEp, // This will now save 42 for Stranger Things
+      'last_updated': DateTime.now().toIso8601String(),
+    };
+
+    try {
+      await _supabase.from('watchlist').upsert(updateData);
+    } catch (e) {
+      debugPrint('Update Watchlist Error: $e');
     }
-    
-    await saveWatchList(currentList);
   }
+  Future<void> removeFromWishlistIfExists(Content content) async {
+  if (_userId == null) return;
+  try {
+    
+    await _supabase
+        .from('wishlist')
+        .delete()
+        .eq('user_id', _userId!)
+        .eq('title_id', content.id);
+    debugPrint('Checked and removed ${content.title} from wishlist if it was present.');
+  } catch (e) {
+    debugPrint('Wishlist cleanup error: $e');
+  }
+}
 }

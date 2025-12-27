@@ -143,6 +143,10 @@ class _HomeTabContentState extends State<HomeTabContent> {
   late Future<List<Content>> _wishListFuture;
   late Future<List<Content>> _watchListFuture;
 
+  final List<String> _genres = ['Crime', 'Fantasy', 'Thriller', 'Romance', 'Action', 'Sci-Fi'];
+  final List<String> _types = ['Anime', 'Movie'];
+  final Set<String> _selectedFilters = {};
+
   @override
   void initState() {
     super.initState();
@@ -163,18 +167,71 @@ class _HomeTabContentState extends State<HomeTabContent> {
     });
   }
 
+  Future<List<Content>> _getFilteredContent(Future<List<Content>> originalFuture) async {
+    final list = await originalFuture;
+    if (_selectedFilters.isEmpty) return list;
+
+    return list.where((item) {
+      final matchesType = _selectedFilters.any((filter) => 
+        _types.contains(filter) && item.mediaType.toLowerCase() == filter.toLowerCase());
+
+      final matchesGenre = _selectedFilters.any((filter) => 
+        _genres.contains(filter) && item.genres.any((g) => g.toLowerCase() == filter.toLowerCase()));
+
+      final hasTypeFilter = _selectedFilters.any((f) => _types.contains(f));
+      final hasGenreFilter = _selectedFilters.any((f) => _genres.contains(f));
+
+      if (hasTypeFilter && hasGenreFilter) {
+        return matchesType && matchesGenre;
+      }
+      return matchesType || matchesGenre;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.filter_list, color: theme.primaryColor),
+                  onSelected: (String value) {
+                    setState(() {
+                      if (_selectedFilters.contains(value)) {
+                        _selectedFilters.remove(value);
+                      } else {
+                        _selectedFilters.add(value);
+                      }
+                    });
+                  },
+                  itemBuilder: (BuildContext context) {
+                    return [..._types, ..._genres].map((String choice) {
+                      final isSelected = _selectedFilters.contains(choice);
+                      return CheckedPopupMenuItem<String>(
+                        value: choice,
+                        checked: isSelected,
+                        child: Text(choice),
+                      );
+                    }).toList();
+                  },
+                ),
+              ],
+            ),
+          ),
           _buildSectionHeader('Trending Movies/TV'),
-          _buildContentRow(_trendingMoviesFuture),
+          _buildContentRow(_getFilteredContent(_trendingMoviesFuture)),
           const SizedBox(height: 32),
           _buildSectionHeader('Top Anime'),
-          _buildContentRow(_topAnimeFuture),
+          _buildContentRow(_getFilteredContent(_topAnimeFuture)),
           const SizedBox(height: 32),
           _buildSectionHeader('My Wishlist'),
           _buildContentRow(_wishListFuture),
@@ -205,14 +262,14 @@ class _HomeTabContentState extends State<HomeTabContent> {
           return const SizedBox(height: 250, child: Center(child: CircularProgressIndicator()));
         }
         final list = snapshot.data ?? [];
-        if (list.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('No titles found.'));
+        if (list.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('No matching items found.'));
         
         return SizedBox(
           height: 280,
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             scrollDirection: Axis.horizontal,
-            itemCount: list.take(10).length,
+            itemCount: list.length,
             itemBuilder: (context, index) => _buildPosterCard(list[index]),
           ),
         );

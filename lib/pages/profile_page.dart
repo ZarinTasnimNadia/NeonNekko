@@ -1,6 +1,5 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -14,9 +13,13 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final _supabase = Supabase.instance.client;
   bool _isLoading = true;
-  bool _isUploading = false;
   Map<String, dynamic>? _profileData;
   final _usernameController = TextEditingController();
+
+  final List<String> _avatarOptions = List.generate(
+    20,
+    (index) => 'https://api.dicebear.com/7.x/big-smile/svg?seed=Neko$index',
+  );
 
   @override
   void initState() {
@@ -40,62 +43,66 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> _uploadAvatar() async {
-    final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
-
-    if (image == null) return;
-
-    setState(() => _isUploading = true);
-
+  Future<void> _updateAvatar(String url) async {
     try {
-      final file = File(image.path);
       final userId = _supabase.auth.currentUser!.id;
-      
-      final String extension = image.path.split('.').last.toLowerCase();
-      final String path = '$userId/profile.$extension';
-
-      await _supabase.storage.from('avatars').upload(
-            path,
-            file,
-            fileOptions: const FileOptions(upsert: true),
-          );
-
-      final String publicUrl = _supabase.storage.from('avatars').getPublicUrl(path);
-      final String timestampedUrl = '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
-
-      await _supabase.from('users').update({'avatar_url': timestampedUrl}).eq('id', userId);
-
-      await _fetchProfile();
+      await _supabase.from('users').update({'avatar_url': url}).eq('id', userId);
       
       if (mounted) {
-        ShadToaster.of(context).show(const ShadToast(description: Text('Photo updated!')));
+        setState(() {
+          _profileData?['avatar_url'] = url;
+        });
+        Navigator.pop(context);
+        ShadToaster.of(context).show(const ShadToast(description: Text('Avatar updated!')));
       }
     } catch (e) {
       if (mounted) {
-        ShadToaster.of(context).show(ShadToast.destructive(description: Text('Upload failed: $e')));
+        ShadToaster.of(context).show(ShadToast.destructive(description: Text('Database error: $e')));
       }
-    } finally {
-      if (mounted) setState(() => _isUploading = false);
     }
   }
 
-  Future<void> _updateProfile() async {
-    try {
-      final userId = _supabase.auth.currentUser!.id;
-      await _supabase.from('users').update({
-        'username': _usernameController.text,
-      }).eq('id', userId);
-      
-      await _fetchProfile();
-      if (mounted) {
-        ShadToaster.of(context).show(const ShadToast(description: Text('Profile updated!')));
-      }
-    } catch (e) {
-      if (mounted) {
-        ShadToaster.of(context).show(ShadToast.destructive(description: Text('Error: $e')));
-      }
-    }
+  void _showAvatarPicker() {
+    final theme = ShadTheme.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: theme.colorScheme.background,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Select your Avatar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 300,
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  crossAxisSpacing: 15,
+                  mainAxisSpacing: 15,
+                ),
+                itemCount: _avatarOptions.length,
+                itemBuilder: (context, index) {
+                  return GestureDetector(
+                    onTap: () => _updateAvatar(_avatarOptions[index]),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: theme.colorScheme.muted,
+                        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.1)),
+                      ),
+                      child: ClipOval(child: SvgPicture.network(_avatarOptions[index])),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -112,37 +119,29 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           children: [
             GestureDetector(
-              onTap: _isUploading ? null : _uploadAvatar,
+              onTap: _showAvatarPicker,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   Container(
-                    width: 120,
-                    height: 120,
+                    width: 130,
+                    height: 130,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: theme.colorScheme.muted,
+                      border: Border.all(color: theme.colorScheme.primary, width: 3),
                     ),
                     child: ClipOval(
                       child: (avatarUrl != null && avatarUrl.isNotEmpty)
-                          ? Image.network(
-                              avatarUrl,
-                              width: 120,
-                              height: 120,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Icon(Icons.person, size: 60, color: theme.colorScheme.primary);
-                              },
-                            )
-                          : Icon(Icons.person, size: 60, color: theme.colorScheme.primary),
+                          ? SvgPicture.network(avatarUrl, fit: BoxFit.cover)
+                          : Icon(Icons.person, size: 70, color: theme.colorScheme.primary),
                     ),
                   ),
-                  if (_isUploading) CircularProgressIndicator(color: theme.colorScheme.primary),
                   Positioned(
                     bottom: 0,
                     right: 0,
                     child: Container(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(color: theme.colorScheme.primary, shape: BoxShape.circle),
                       child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                     ),
@@ -153,22 +152,22 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 32),
             const Align(
               alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(bottom: 8.0),
-                child: Text('Username', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              ),
+              child: Text('Username', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             ),
-            ShadInput(
-              controller: _usernameController,
-              placeholder: const Text('Enter your username'),
-            ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
+            ShadInput(controller: _usernameController, placeholder: const Text('Enter username')),
+            const SizedBox(height: 20),
             ShadButton(
               width: double.infinity,
-              onPressed: _updateProfile,
+              onPressed: () async {
+                final userId = _supabase.auth.currentUser!.id;
+                await _supabase.from('users').update({'username': _usernameController.text}).eq('id', userId);
+                await _fetchProfile();
+                if (mounted) ShadToaster.of(context).show(const ShadToast(description: Text('Saved!')));
+              },
               child: const Text('Save Profile Changes'),
             ),
-            const Divider(height: 64),
+            const Divider(height: 60),
             ShadButton.destructive(
               width: double.infinity,
               onPressed: () async {

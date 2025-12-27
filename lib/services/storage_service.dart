@@ -64,6 +64,7 @@ class StorageService {
       currentProgress: json['currentProgress'],
       totalProgress: json['totalProgress'],
       priority: json['priority'],
+      genres: json['genres'] ?? [],
     )).toList();
   }
 
@@ -87,6 +88,7 @@ class StorageService {
         imageUrl: json['temp_image'] ?? '',
         mediaType: json['temp_media_type'] ?? 'anime',
         priority: json['priority_order'],
+        genres: [],
       )).toList();
 
       // 2. Only overwrite cache if we successfully got data from the server
@@ -159,6 +161,7 @@ class StorageService {
         status: _mapDbStatusToUi(json['current_status']),
         currentProgress: json['episodes_watched'],
         totalProgress: json['temp_total_episodes'] ?? 12,
+        genres: [],
       )).toList();
 
       await _saveLocalCache('watchlist', list);

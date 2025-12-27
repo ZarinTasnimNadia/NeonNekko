@@ -211,7 +211,8 @@ class _DetailPageState extends State<DetailPage> {
                                       id: s['mal_id'],
                                       title: s['name'],
                                       imageUrl: widget.content.imageUrl, 
-                                      mediaType: 'anime'
+                                      mediaType: 'anime',
+                                      genres: widget.content.genres
                                     )
                                   )
                                 )

@@ -17,8 +17,8 @@ class AuthService {
         } else if (response is String) {
           foundEmail = response;
         }
-      } on PostgrestException catch (e) {
-        throw Exception('Login failed due to a server configuration issue.');
+      } catch (e) {
+        throw Exception('Login failed during username lookup.');
       }
 
       if (foundEmail == null || foundEmail.isEmpty) {
@@ -57,17 +57,33 @@ class AuthService {
         throw Exception('Sign up failed: User could not be created.');
       }
 
-      await _supabase.from('pending_profiles').insert({
+      await _supabase.from('users').insert({
         'id': user.id,
         'username': username,
         'email': email,
         'full_name': fullName,
         'date_of_birth': dateOfBirth,
         'avatar_url': avatarUrl,
-        'selected_genres': selectedGenres,
       });
 
-      
+      if (selectedGenres.isNotEmpty) {
+        final genreData = await _supabase
+            .from('genres')
+            .select('id, name')
+            .filter('name', 'in', selectedGenres);
+
+        final List<Map<String, dynamic>> junctionEntries = [];
+        for (var genre in genreData) {
+          junctionEntries.add({
+            'user_id': user.id,
+            'genre_id': genre['id'],
+          });
+        }
+
+        if (junctionEntries.isNotEmpty) {
+          await _supabase.from('user_preferred_genres').insert(junctionEntries);
+        }
+      }
     } on AuthException catch (e) {
       throw Exception(e.message);
     } catch (e) {

@@ -97,7 +97,7 @@ class _SignUpPageState extends State<SignUpPage> {
       
       if (mounted) {
         ShadToaster.of(context).show(
-          const ShadToast(description: Text('Success! Please check your email to verify.')),
+          const ShadToast(description: Text('Success! Account created.')),
         );
         Navigator.pop(context);
       }
@@ -170,7 +170,7 @@ class _SignUpPageState extends State<SignUpPage> {
             const SizedBox(height: 40),
             Align(
               alignment: Alignment.centerRight,
-              child: ShadButton(onPressed: signUp, child: const Text('Verify email')),
+              child: ShadButton(onPressed: signUp, child: const Text('Create Account')),
             ),
             const SizedBox(height: 20),
             Align(

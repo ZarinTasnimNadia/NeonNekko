@@ -21,12 +21,13 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   late final List<Widget> _pages;
+  final GlobalKey<_HomeTabContentState> _homeTabKey = GlobalKey<_HomeTabContentState>();
 
   @override
   void initState() {
     super.initState();
     _pages = [
-      const HomeTabContent(),
+      HomeTabContent(key: _homeTabKey),
       const WishListPage(),
       const WatchListPage(),
       const ProfilePage(),
@@ -86,6 +87,14 @@ class _HomePageState extends State<HomePage> {
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (context) => const SearchPage()),
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              if (_selectedIndex == 0) {
+                _homeTabKey.currentState?._refresh();
+              }
+            },
           ),
         ],
       ),
@@ -160,6 +169,12 @@ class _HomeTabContentState extends State<HomeTabContent> {
     _watchListFuture = _storageService.loadWatchList();
   }
 
+  void _refresh() {
+    setState(() {
+      _initFutures();
+    });
+  }
+
   void _refreshLocalData() {
     setState(() {
       _wishListFuture = _storageService.loadWishList();
@@ -186,6 +201,11 @@ class _HomeTabContentState extends State<HomeTabContent> {
       }
       return matchesType || matchesGenre;
     }).toList();
+  }
+
+  Future<List<Content>> _getOngoingWatchList() async {
+    final list = await _watchListFuture;
+    return list.where((item) => item.status != 'Completed').toList();
   }
 
   @override
@@ -237,7 +257,7 @@ class _HomeTabContentState extends State<HomeTabContent> {
           _buildContentRow(_wishListFuture),
           const SizedBox(height: 32),
           _buildSectionHeader('Currently Watching'),
-          _buildContentRow(_watchListFuture),
+          _buildContentRow(_getOngoingWatchList()),
           const SizedBox(height: 16),
         ],
       ),
@@ -281,7 +301,7 @@ class _HomeTabContentState extends State<HomeTabContent> {
     return GestureDetector(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (context) => DetailPage(content: content)),
-      ).then((_) => _refreshLocalData()),
+      ).then((_) => _refresh()),
       child: Container(
         width: 140,
         margin: const EdgeInsets.only(right: 12),
@@ -346,7 +366,7 @@ class _HomeTabContentState extends State<HomeTabContent> {
                           ),
                           onPressed: () async {
                             await _storageService.toggleWatchListItem(content);
-                            _refreshLocalData();
+                            _refresh();
                           },
                         );
                       },
@@ -371,7 +391,7 @@ class _HomeTabContentState extends State<HomeTabContent> {
                           ),
                           onPressed: () async {
                             await _storageService.toggleWishListItem(content);
-                            _refreshLocalData();
+                            _refresh();
                           },
                         );
                       },
@@ -391,5 +411,11 @@ class _HomeTabContentState extends State<HomeTabContent> {
         ),
       ),
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _refreshLocalData();
   }
 }

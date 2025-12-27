@@ -29,7 +29,7 @@ class _WatchListPageState extends State<WatchListPage> {
     });
   }
 
-  void _updateProgress(Content content, int delta) async {
+  Future<void> _updateProgress(Content content, int delta) async {
     int current = content.currentProgress ?? 0;
     int maxVal = content.totalProgress ?? 12;
 
@@ -61,7 +61,9 @@ class _WatchListPageState extends State<WatchListPage> {
       await _storageService.removeFromWishlistIfExists(content);
     }
     
-    _refresh();
+    if (mounted) {
+      _refresh();
+    }
   }
 
   void _showEditDialog(Content content) {
@@ -128,7 +130,15 @@ class _WatchListPageState extends State<WatchListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Watchlist')),
+      appBar: AppBar(
+        title: const Text('My Watchlist'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _refresh,
+          ),
+        ],
+      ),
       body: FutureBuilder<List<Content>>(
         future: _watchListFuture,
         builder: (context, snapshot) {

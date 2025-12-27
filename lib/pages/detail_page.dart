@@ -53,8 +53,9 @@ class _DetailPageState extends State<DetailPage> {
           .from('reviews')
           .select('''
             *,
-            users!reviews_user_id_public_fkey (
-              username
+            users (
+              username,
+              avatar_url
             )
           ''')
           .eq('content_id', widget.content.id)
@@ -63,9 +64,10 @@ class _DetailPageState extends State<DetailPage> {
 
       if (mounted) {
         setState(() {
-          _comments = res;
+          _comments = (res is List) ? List<dynamic>.from(res) : [];
+          
           if (_comments.isNotEmpty) {
-            final total = _comments.fold<double>(0, (sum, item) => sum + (item['rating'] as num).toDouble());
+            final total = _comments.fold<double>(0, (sum, item) => sum + ((item['rating'] as num?)?.toDouble() ?? 0.0));
             _averageRating = total / _comments.length;
           } else {
             _averageRating = 0.0;
@@ -73,19 +75,26 @@ class _DetailPageState extends State<DetailPage> {
 
           final currentUserId = _supabase.auth.currentUser?.id;
           if (currentUserId != null) {
-            final userReview = _comments.firstWhere(
-              (r) => r['user_id'] == currentUserId,
-              orElse: () => null,
-            );
-            if (userReview != null) {
-              _userRating = (userReview['rating'] as num).toDouble();
+            try {
+              final userReview = _comments.firstWhere(
+                (r) => r['user_id'] == currentUserId,
+              );
+              _userRating = ((userReview['rating'] as num?)?.toDouble()) ?? 0.0;
               _commentController.text = userReview['comment'] ?? '';
+            } catch (e) {
+              _userRating = 0.0;
             }
           }
         });
       }
     } catch (e) {
       debugPrint('Error fetching comments: $e');
+      if (mounted) {
+        setState(() {
+          _comments = [];
+          _averageRating = 0.0;
+        });
+      }
     }
   }
 

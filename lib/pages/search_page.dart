@@ -3,6 +3,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'dart:async';
 import '../models/content.dart';
 import '../services/api_service.dart';
+import '../services/storage_service.dart';
 import '../pages/detail_page.dart';
 
 class SearchPage extends StatefulWidget {
@@ -14,14 +15,25 @@ class SearchPage extends StatefulWidget {
 
 class _SearchPageState extends State<SearchPage> {
   final ApiService _apiService = ApiService();
+  final StorageService _storageService = StorageService();
   final TextEditingController _searchController = TextEditingController();
   Future<List<Content>> _searchResultsFuture = Future.value([]);
+  late Future<List<Content>> _wishListFuture;
+  late Future<List<Content>> _watchListFuture;
   Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _loadLists();
+  }
+
+  void _loadLists() {
+    setState(() {
+      _wishListFuture = _storageService.loadWishList();
+      _watchListFuture = _storageService.loadWatchList();
+    });
   }
 
   void _onSearchChanged() {
@@ -75,7 +87,53 @@ class _SearchPageState extends State<SearchPage> {
                   child: Image.network(item.imageUrl, width: 40, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image)),
                 ),
                 title: Text(item.title),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(content: item))),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FutureBuilder<List<Content>>(
+                      future: _wishListFuture,
+                      builder: (context, snapshot) {
+                        final isWished = snapshot.data?.any((element) => element.id == item.id) ?? false;
+                        return ShadButton.ghost(
+                          width: 32,
+                          height: 32,
+                          padding: EdgeInsets.zero,
+                          child: Icon(
+                            isWished ? Icons.favorite : Icons.favorite_border,
+                            color: isWished ? Colors.pink : Colors.grey,
+                            size: 20,
+                          ),
+                          onPressed: () async {
+                            await _storageService.toggleWishListItem(item);
+                            _loadLists();
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    FutureBuilder<List<Content>>(
+                      future: _watchListFuture,
+                      builder: (context, snapshot) {
+                        final isWatched = snapshot.data?.any((element) => element.id == item.id) ?? false;
+                        return ShadButton.ghost(
+                          width: 32,
+                          height: 32,
+                          padding: EdgeInsets.zero,
+                          child: Icon(
+                            isWatched ? Icons.bookmark : Icons.bookmark_border,
+                            color: isWatched ? Colors.purpleAccent : Colors.grey,
+                            size: 20,
+                          ),
+                          onPressed: () async {
+                            await _storageService.toggleWatchListItem(item);
+                            _loadLists();
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(content: item))).then((_) => _loadLists()),
               );
             },
           );
